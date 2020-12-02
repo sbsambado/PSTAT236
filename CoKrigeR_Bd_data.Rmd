@@ -7,21 +7,197 @@ output:
   html_document: default
 ---
 
-#```{r setup, include=FALSE}
+```{r setup, include=FALSE}
 #knitr::opts_chunk$set(echo = TRUE)
-#```
+```
 
 # load packages
 ```{r}
-library(sp) 
+library(sp)
 library(gstat) 
+library(readxl)
 ```
 
 # Read in the data, subset, and convert infection loads
 ```{r}
-# read in the data
-d <- read.csv("Dropbox/dissertation research/Summer_2019/Field_data_2019/field_data_11192020.csv", header=T, stringsAsFactors = F)
+# read in the data files
+aug <- read_excel("~/PSTAT236/August_2020_data.xlsx")
+jul <- read_excel("~/PSTAT236/July_2020_data.xlsx")
+mar <- read_excel("~/PSTAT236/March_2020_data.xlsx")
+winter <- read_excel("~/PSTAT236/PSTAT236_metadata.xlsx")
 
+#df %>% drop_na(rnor, cfam)
+
+#woo <- aug[complete.cases(aug), ]
+
+aug_enviro <- read_excel("~/PSTAT236/August_2020_data.xlsx",sheet = "sites") 
+jul_enviro <- read_excel("~/PSTAT236/July_2020_data.xlsx",sheet = "sites")
+mar_enviro <- read_excel("~/PSTAT236/March_2020_data.xlsx",sheet = "sites")
+winter_enviro <- read_excel("~/PSTAT236/Winter_2020_data.xlsx",sheet = "sites")
+```
+
+Calculate mean infection load for each site/season and bind this to each season's environmental dataframe
+```{r}
+## filter by site and calculate mean infection load for each
+
+# FOR AUGUST
+# initialize empty dataframe
+avg_inf <- vector()
+i <- 1
+
+# for each site sampled during this season, subset the dataframe for the infection loads and take the average for that site - put these average values into the empty vector
+for (i in 1:length(unique(aug_enviro$code))){
+  
+  test <- aug[which(aug$code == unique(aug_enviro$code)[i]), "pcr_qty"]
+  avg_inf[i] <- mean(test$pcr_qty, na.rm = TRUE)
+
+}
+
+# check average infection loads
+avg_inf
+
+# bind average infection loads for each site onto the environmental site data
+aug <- cbind(aug_enviro, avg_inf)
+
+# FOR JULY
+avg_inf <- vector()
+i <- 1
+
+for (i in 1:length(unique(jul_enviro$code))){
+  
+  test <- jul[which(jul$code == unique(jul_enviro$code)[i]), "pcr_qty"]
+  avg_inf[i] <- mean(test$pcr_qty, na.rm = TRUE)
+
+}
+
+avg_inf
+
+jul <- cbind(jul_enviro, avg_inf)
+
+# FOR MARCH
+avg_inf <- vector()
+i <- 1
+
+for (i in 1:length(unique(mar_enviro$code))){
+  
+  test <- mar[which(mar$code == unique(mar_enviro$code)[i]), "pcr_qty"]
+  avg_inf[i] <- mean(test$pcr_qty, na.rm = TRUE)
+
+}
+
+avg_inf
+
+mar <- cbind(mar_enviro, avg_inf)
+
+# FOR WINTER
+
+# calculate mean infection load for winter data
+winter$qpcr_a <- as.numeric(winter$qpcr_a)
+winter$qpcr_b <- as.numeric(winter$qpcr_b)
+winter$qpcr_c <- as.numeric(winter$qpcr_c)
+
+winter$pcr_qty <- rowMeans (winter [, c("qpcr_a", "qpcr_b", "qpcr_c")], na.rm = T)
+
+avg_inf <- vector()
+i <- 1
+
+for (i in 1:length(unique(winter_enviro$code))){
+  
+  test <- winter[which(winter$code == unique(winter_enviro$code)[i]), "pcr_qty"]
+  avg_inf[i] <- mean(test$pcr_qty, na.rm = TRUE)
+
+}
+
+avg_inf
+
+winter <- cbind(winter_enviro, avg_inf)
+
+# original dataset missing some environmental variables, so insert march data for those variables into winter. This is only so that we can more easily go through the analysis steps for our understanding.
+mar_sub <- mar[ , c(1, 32:36)]
+
+winter <- merge(winter, mar_sub, by="code", all = T)
+
+# remove the notes row
+winter$notes <- NULL
+
+# reorder column names in winter to match other months
+# it's too late for me tonight to figure this out
+col_order <- names(mar)
+winter <- winter[ , col_order]
+
+```
+
+Old code from Imani's attempt to merge the winter data in R
+```{r}
+# FOR WINTER
+## infection loads are missing from winter dataset and are in Imani's samples/dataset - need to read this in and add it to the dataframes
+library(readr)
+
+# commented this out because this only needs to be run once - I saved the csv on Github (I think)
+#imani_data <- read_csv("~/Dropbox/dissertation research/Summer_2019/Field_data_2019/field_data_11192020.csv")
+
+#write.csv(imani_data, "imani_data.csv")
+
+imani_data <- read.csv("~/PSTAT236/imani_data.csv", stringsAsFactors = F)
+
+# match up IDR sample names with the corresponding rows in winter dataset
+  # field numbers in imani_data are IDR### while winter numbers are idr_###
+
+  # get field numbers from winter data
+id_no <- winter [grep ("idr", winter$sample_id), "sample_id"]
+
+  # get corresponding rows from imani_data
+#imani_data [grep ("747", imani_data$FieldNumber), ] # can't figure this out right now
+sub <- imani_data [757:822, ]
+sub[ , 38:40] <- lapply (sub[ , 38:40], as.numeric)
+
+  # calculate average ZE score from imani_data ((ZE_1 + ZE_2 + ZE_3)/3)
+sub$avg_in <- rowMeans(sub [, c("ZE_1", "ZE_2", "ZE_3")], na.rm = T)
+sub$sample_id <- sub$FieldNumber
+
+  # remove unneccessary data from sub to merge with winter
+sub_sub <- sub [, c("sample_id", "avg_in")]
+sub_sub$sample_id <- gsub("IDR", "idr_", sub_sub$sample_id, ignore.case = TRUE)
+
+# add these average scores to the corresponding rows in winter data
+View(winter[order(winter$sample_id),]) # rows we are binding are winter[111:176,]
+
+winter2 <- merge(winter, sub_sub, by="sample_id", all = T)
+winter2$pcr_qty <- winter2$avg_in
+
+# now subset and average for sites/season
+avg_inf <- vector()
+i <- 1
+
+for (i in 1:length(unique(winter_enviro$code))){
+  
+  # ERROR HERE - something I'm doing between the march data and here is messing up the data structure. If you go back a rerun the previous average infection load calculations, this messes those up too.
+  test <- winter2[which(winter2$code == unique(winter_enviro$code)[i]), "pcr_qty"]
+  avg_inf[i] <- mean(test$pcr_qty, na.rm = TRUE)
+
+}
+
+avg_inf
+
+# bind average infection loads for each site onto the environmental site data
+winter2 <- cbind(winter2_enviro, avg_inf)
+```
+
+Create compiled metadata file containing all seasons and include coordinates
+```{r}
+# column names don't match --> fix for mar dataset so we can merge
+names(mar) <- name$Real.name[match(names(df), name$Name)]
+
+# merge the 4 dataframes into 1
+metadata <- do.call("rbind", list(aug, jul, mar)) # incorporate winter later
+
+# convert avg_inf to zoospore equivalents (ZE), which is defined as the number of zoospores/swab
+metadata$avg_inf <- metadata$avg_inf * 80
+```
+
+
+Leftover data cleanup from 
+```{r}
 # remove frogs that we caught but didn't sample because they were too small
 d <- d[d$Taxon != "too_small", ]
 
@@ -47,40 +223,22 @@ df$SVL_mm <- as.numeric(df$SVL_mm)
 df$Mass_g <- as.numeric(df$Mass_g)
 ```
 
-# calculate average ZE for each individual frog
-```{r}
-#df$avg_ze <- rowMeans (df [ ,c("ZE_1", "ZE_2", "ZE_3")], na.rm=TRUE)
-
-# initialize empty vector for mean infection loads/individual
-avg_ze <- numeric()
-
-# loop to calculate mean
-for (i in 1:nrow(df)){
-  avg_ze[i] <- sum(df[i, c("ZE_1", "ZE_2", "ZE_3")])/3
-}
-
-# attach these vectors to the sub dataframe
-df <- cbind (df, avg_ze)
-```
-
 # separate infected from uninfected --> log-transforming negative infections is creating problems down the line, and adding a small constant also results in highly skewed data even after log-transforming. So we will analyze positive infections only (negative infections are also really important, so I will need to figure out how to incorporate that, or if it's really just 2 separate analyses for the spatial analysis too)
 ```{r}
-df <- df[!is.na(df$avg_ze), ]
+df <- metadata[!is.na(metadata$avg_inf), ]
 
 # now I'm subsetting the dataframe we just made to include only positive infections
-df <- df[df$avg_ze >= 1.0, ]
+df <- df[df$avg_inf >= 1.0, ]
 ```
 
 ## Now going into exercises from Co-kriging with the gstat package (Rossiter, 2018)
-
-# how do we make an interpolation grid? isn't kriging a method of interpolation?
 
 # we want to map infection loads (target variable) - plot histograms of target variable (infection load) and log10 transformation
 ```{r}
 require(lattice)
 
-h_1 <- histogram (~ avg_ze, df, xlab = "Infection load", col = "thistle3")
-h_2 <- histogram (~ log10(avg_ze), df, xlab = "log10(infection load)", col = "thistle3")
+h_1 <- histogram (~ avg_inf, df, xlab = "Infection load", col = "thistle3")
+h_2 <- histogram (~ log10(avg_inf), df, xlab = "log10(infection load)", col = "thistle3")
 
 print (h_1, split = c(1, 1, 2, 1), more = T)
 print (h_2, split = c(2, 1, 2, 1), more = F)
@@ -94,7 +252,7 @@ rm (h_1, h_2)
 ```{r}
 # show the proportions higher than the various thresholds
 ph <- function (level) {
-  round (100 * sum (df$avg_ze > level) / length (df$avg_ze), 1)
+  round (100 * sum (df$avg_inf > level) / length (df$avg_inf), 1)
 }
 
 p <- NULL; lvls <- c(100, 1000, 10000, 100000, 1000000)
@@ -108,15 +266,28 @@ rm (ph, l, lvls, p)
 ```
 
 # choose (continuous) covariables based on my hypotheses
-## SVL_mm: length of the frog from snout-to-vent (determines age class)
-## mass_g: mass of the frog
+## wet_m: how far out the wet ring extends from the edge of the pond
+## pond_size
+## canopy
+## open_water
+## secchi_3
+## water temp
+## ph
+## conductivity
+## dissolved solids
+## salinity
+
 ## lat/long: coordinates where frog was captured <- how do we use this here?
 ## elevation
-# choose covariables based on theory: organic matter content (OM) and zinc content (Zn)
+
+#IMANI ENDED HERE FOR THE NIGHT
 ```{r}
-h1 <- histogram (~ SVL_mm, df, xlab = "SVL", col = "lightblue")
-h2 <- histogram (~ Mass_g, df, xlab = "Mass", col = "red4")
-h3 <- histogram (~ Elevation_m, df, xlab = "Elevation", col = "yellow")
+h1 <- histogram (~ wet_m, df, xlab = "SVL", col = "lightblue")
+h2 <- histogram (~ pond_size, df, xlab = "Mass", col = "red4")
+h3 <- histogram (~ canopy, df, xlab = "Elevation", col = "yellow")
+h3 <- histogram (~ canopy, df, xlab = "Elevation", col = "yellow")
+h3 <- histogram (~ canopy, df, xlab = "Elevation", col = "yellow")
+h3 <- histogram (~ canopy, df, xlab = "Elevation", col = "yellow")
 
 h4 <- histogram (~ log10(SVL_mm), df, xlab = "log10(SVL)", col = "lightblue")
 h5 <- histogram (~ log10(Mass_g), df, xlab = "log10(Mass)", col = "red4")
