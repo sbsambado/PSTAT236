@@ -23,6 +23,9 @@ str(metadata)
 # convert numeric variables from character to numeric
 metadata$amphibian_svl <- as.numeric (metadata$amphibian_svl)
 metadata$amphibian_weight <- as.numeric (metadata$amphibian_weight)
+
+# remove tsk151 - likely an error (infection load is super super high)
+metadata <- metadata[-201, ]
 ```
 
 Convert qpcr quantities to ZE (zoospore equivalents = # zoospores/swab)
@@ -30,12 +33,29 @@ Convert qpcr quantities to ZE (zoospore equivalents = # zoospores/swab)
 metadata$avg_inf <- metadata$average_qpcr * 80 
 
 # metadata is the complete dataset, including NAs
-write.csv(metadata, "PSTAT236_metadata_final.csv")
+#write.csv(metadata, "PSTAT236_metadata_final.csv")
 ```
 
 Read in and look at the structure of the interpolation grid
 ```{r}
-grid <- read.
+library(rgdal)
+
+grid <- readOGR("~/PSTAT236/grid_bay_26910.shp")
+frog <- readOGR("~/PSTAT236/dat_bay_26910.shp")
+
+grid_coord <- as.data.frame(grid@coords)
+
+gridded (grid_coord) = ~coords.x1 + coords.x2
+
+frog@data[,39] = as.numeric(frog@data[,39])
+frog@data[,40] = as.numeric(frog@data[,40])
+frog@data[,41] = as.numeric(frog@data[,41])
+
+ze_1 = variogram(log(ZE_1) ~ 1, frog)
+ze_2 = variogram(log(ZE_2) ~ 1, frog)
+ze_3 = variogram(log(ZE_3) ~ 1, frog)
+
+plot(ze_1)
 ```
 
 
@@ -82,59 +102,93 @@ for (l in lvls) p <- c(p, ph(l))
 rm (ph, l, lvls, p)
 ```
 
-# choose (continuous) covariables based on my hypotheses
+# choose (continuous) covariables based on our hypotheses
 ## wet_m: how far out the wet ring extends from the edge of the pond
+### Bd is an aquatic fungus, so Bd infections are likely directly tied to the amount of water/moisture present.
 ## amphibian svl
+### larger body size probably means more zoospores (more surface area)
 ## amphibian weight
+### same reasoning as for svl
 ## ph
+### certain pH levels may be more hospitable for Bd survival
 ## water temp
+### Bd is a cold-loving fungus, so ponds with lower water temperatures may be ideal for infections
 ## conductivity
+
 ## dissolved solids
+
 ## salinity
+### one paper has mentioned Bd preferring more saline waters (within a freshwater range)
 
 ## lat/long: coordinates where frog was captured <- how do we use this here?
 
 
-#IMANI ENDED HERE FOR THE NIGHT
+# plot histograms of the covariables and log(10) transformations
 ```{r}
-h1 <- histogram (~ amphibian_svl, df_pos, xlab = "SVL", col = "lightblue")
-h2 <- histogram (~ amphibian_weight, df_pos, xlab = "Mass", col = "red4")
-h3 <- histogram (~ ph, df_pos, xlab = "Ph", col = "yellow")
-h4 <- histogram (~ watertemp, df_pos, xlab = "Water temperature", col = "yellow")
-h5 <- histogram (~ conductivity_uS, df_pos, xlab = "Water conductivity", col = "yellow")
-h6 <- histogram (~ totaldissolvedsolid, df_pos, xlab = "Total dissolved solids", col = "yellow")
-h7 <- histogram (~ salinity_ppt, df_pos, xlab = "Salinity", col = "yellow")
+h1 <- histogram (~ amphibian_svl, df_pos, xlab = "SVL", col = "#d53e4f")
+h2 <- histogram (~ amphibian_weight, df_pos, xlab = "Mass", col = "#fee08b")
+h3 <- histogram (~ ph, df_pos, xlab = "Ph", col = "#99d594")
+h4 <- histogram (~ watertemp, df_pos, xlab = "Water temperature", col = "#3288bd")
+h5 <- histogram (~ conductivity_uS, df_pos, xlab = "Water conductivity", col = "#998ec3")
+h6 <- histogram (~ totaldissolvedsolid, df_pos, xlab = "Total dissolved solids", col = "#8c510a")
+h7 <- histogram (~ salinity_ppt, df_pos, xlab = "Salinity", col = "#fc8d59")
 
-h4 <- histogram (~ log10(SVL_mm), df_pos, xlab = "log10(SVL)", col = "lightblue")
-h5 <- histogram (~ log10(Mass_g), df_pos, xlab = "log10(Mass)", col = "red4")
-h6 <- histogram (~ log10(Elevation_m), df_pos, xlab = "log10(Elevation)", col = "yellow")
-
-print (h1, split = c(1, 1, 3, 2), more = T)
-print (h2, split = c(2, 1, 3, 2), more = T)
-print (h3, split = c(3, 1, 3, 2), more = T)
-print (h4, split = c(4, 2, 3, 2), more = F)
-print (h5, split = c(1, 2, 3, 2), more = T)
-print (h6, split = c(2, 2, 3, 2), more = T)
-print (h7, split = c(3, 2, 3, 2), more = F)
+print (h1, split = c(1, 1, 4, 2), more = T)
+print (h2, split = c(2, 1, 4, 2), more = T)
+print (h3, split = c(3, 1, 4, 2), more = T)
+print (h4, split = c(4, 1, 4, 2), more = T)
+print (h5, split = c(1, 2, 4, 2), more = T)
+print (h6, split = c(2, 2, 4, 2), more = T)
+print (h7, split = c(3, 2, 4, 2), more = F)
 
 
 rm (h1, h2, h3, h4, h5, h6)
 ```
-It looks like elevation is slightly better without log-transforming, but the rest are better log10-transformed.
+
+
+```{r}
+h1 <- histogram (~ log10(amphibian_svl), df_pos, xlab = "log10(SVL)", col = "#d53e4f")
+h2 <- histogram (~ log10(amphibian_weight), df_pos, xlab = "log10(Mass)", col = "#fee08b")
+h3 <- histogram (~ log10(ph), df_pos, xlab = "log10(pH)", col = "#99d594")
+h4 <- histogram (~ log10(watertemp), df_pos, xlab = "log10(Water temperature)", col = "#3288bd")
+h5 <- histogram (~ log10(conductivity_uS), df_pos, xlab = "log10(Water conductivity)", col = "#998ec3")
+h6 <- histogram (~ log10(totaldissolvedsolid), df_pos, xlab = "log10(Total dissolved solids)", col = "#8c510a")
+h7 <- histogram (~ log10(salinity_ppt), df_pos, xlab = "log10(Salinity)", col = "#fc8d59")
+
+
+print (h1, split = c(1, 1, 4, 2), more = T)
+print (h2, split = c(2, 1, 4, 2), more = T)
+print (h3, split = c(3, 1, 4, 2), more = T)
+print (h4, split = c(4, 1, 4, 2), more = T)
+print (h5, split = c(1, 2, 4, 2), more = T)
+print (h6, split = c(2, 2, 4, 2), more = T)
+print (h7, split = c(3, 2, 4, 2), more = F)
+
+
+rm (h1, h2, h3, h4, h5, h6)
+```
+It looks like everything is slightly better log10 transforming. pH remains relatively left-skewed regardless of transformation.
 
 ## Simulate under-sampling of target variable compared to the covariable
 
 # Make subset of the observations of infection load (target variable) and covariables (SVL, mass, and elevation), using every third sample from the full dataset.
 ```{r}
-df.inf <- df [seq (1, length (df$avg_ze), by = 3), 
-                   c ("Latitude", "Longitude", "avg_ze", "SVL_mm", "Mass_g", "Elevation_m")]
+df.inf <- df_pos [seq (1, length (df_pos$avg_inf), by = 3), 
+                   c ("x", "y", "avg_inf",
+                      "amphibian_svl", "amphibian_weight", 
+                      "ph", "watertemp", 
+                      "conductivity_uS", "totaldissolvedsolid",
+                      "salinity_ppt")]
 str (df.inf)
+
+# look at the selected rows
+rownames(df.inf)
 ```
 
 # Add fields with the log10 transformed target and covariables to the dataframe of the subsample
 ```{r}
 df.inf <- cbind (df.inf,
-                   ltavgze = log10 (df.inf$avg_ze),
+                   ltavg_inf = log10 (df.inf$avg_inf),
                    lt = log10 (df.inf$SVL_mm),
                    ltzn = log10 (df.inf$Mass_g))
 
