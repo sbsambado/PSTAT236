@@ -16,6 +16,13 @@ metadata <- read.csv("~/PSTAT236/PSTAT236_metadata.csv", stringsAsFactors = F)
 
 # remove the last 2 columns (empty, just some strange artifact from the excel file)
 metadata <- metadata [-c (22, 23)]
+
+# check structure of the dataframe
+str(metadata)
+
+# convert numeric variables from character to numeric
+metadata$amphibian_svl <- as.numeric (metadata$amphibian_svl)
+metadata$amphibian_weight <- as.numeric (metadata$amphibian_weight)
 ```
 
 Convert qpcr quantities to ZE (zoospore equivalents = # zoospores/swab)
@@ -23,9 +30,10 @@ Convert qpcr quantities to ZE (zoospore equivalents = # zoospores/swab)
 metadata$avg_inf <- metadata$average_qpcr * 80 
 
 # metadata is the complete dataset, including NAs
+write.csv(metadata, "PSTAT236_metadata_final.csv")
 ```
 
-Look at the interpolation grid
+Read in and look at the structure of the interpolation grid
 ```{r}
 grid <- read.
 ```
@@ -61,7 +69,7 @@ We can see from these histograms that the untransformed infection loads are high
 ```{r}
 # show the proportions higher than the various thresholds
 ph <- function (level) {
-  round (100 * sum (df$avg_inf > level) / length (df$avg_inf), 1)
+  round (100 * sum (df_pos$avg_inf > level) / length (df_pos$avg_inf), 1)
 }
 
 p <- NULL; lvls <- c(100, 1000, 10000, 100000, 1000000)
@@ -76,38 +84,39 @@ rm (ph, l, lvls, p)
 
 # choose (continuous) covariables based on my hypotheses
 ## wet_m: how far out the wet ring extends from the edge of the pond
-## pond_size
-## canopy
-## open_water
-## secchi_3
-## water temp
+## amphibian svl
+## amphibian weight
 ## ph
+## water temp
 ## conductivity
 ## dissolved solids
 ## salinity
 
 ## lat/long: coordinates where frog was captured <- how do we use this here?
-## elevation
+
 
 #IMANI ENDED HERE FOR THE NIGHT
 ```{r}
-h1 <- histogram (~ wet_m, df, xlab = "SVL", col = "lightblue")
-h2 <- histogram (~ pond_size, df, xlab = "Mass", col = "red4")
-h3 <- histogram (~ canopy, df, xlab = "Elevation", col = "yellow")
-h3 <- histogram (~ canopy, df, xlab = "Elevation", col = "yellow")
-h3 <- histogram (~ canopy, df, xlab = "Elevation", col = "yellow")
-h3 <- histogram (~ canopy, df, xlab = "Elevation", col = "yellow")
+h1 <- histogram (~ amphibian_svl, df_pos, xlab = "SVL", col = "lightblue")
+h2 <- histogram (~ amphibian_weight, df_pos, xlab = "Mass", col = "red4")
+h3 <- histogram (~ ph, df_pos, xlab = "Ph", col = "yellow")
+h4 <- histogram (~ watertemp, df_pos, xlab = "Water temperature", col = "yellow")
+h5 <- histogram (~ conductivity_uS, df_pos, xlab = "Water conductivity", col = "yellow")
+h6 <- histogram (~ totaldissolvedsolid, df_pos, xlab = "Total dissolved solids", col = "yellow")
+h7 <- histogram (~ salinity_ppt, df_pos, xlab = "Salinity", col = "yellow")
 
-h4 <- histogram (~ log10(SVL_mm), df, xlab = "log10(SVL)", col = "lightblue")
-h5 <- histogram (~ log10(Mass_g), df, xlab = "log10(Mass)", col = "red4")
-h6 <- histogram (~ log10(Elevation_m), df, xlab = "log10(Elevation)", col = "yellow")
+h4 <- histogram (~ log10(SVL_mm), df_pos, xlab = "log10(SVL)", col = "lightblue")
+h5 <- histogram (~ log10(Mass_g), df_pos, xlab = "log10(Mass)", col = "red4")
+h6 <- histogram (~ log10(Elevation_m), df_pos, xlab = "log10(Elevation)", col = "yellow")
 
 print (h1, split = c(1, 1, 3, 2), more = T)
 print (h2, split = c(2, 1, 3, 2), more = T)
 print (h3, split = c(3, 1, 3, 2), more = T)
-print (h4, split = c(1, 2, 3, 2), more = T)
-print (h5, split = c(2, 2, 3, 2), more = T)
-print (h6, split = c(3, 2, 3, 2), more = F)
+print (h4, split = c(4, 2, 3, 2), more = F)
+print (h5, split = c(1, 2, 3, 2), more = T)
+print (h6, split = c(2, 2, 3, 2), more = T)
+print (h7, split = c(3, 2, 3, 2), more = F)
+
 
 rm (h1, h2, h3, h4, h5, h6)
 ```
