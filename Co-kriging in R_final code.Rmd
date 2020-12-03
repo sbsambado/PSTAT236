@@ -1,9 +1,11 @@
 ---
-title: "Co-Kriging in R"
+title: "Co-Kriging in R (Rossiter, 2018)"
 author: "Imani Russell"
 date: "12/2/2020"
 output: html_document
 ---
+### This R Markdown document contains the code for our exercise in executing the code directly from the technical note: Co-kriging in R (Rosseter, 2018). Much of the text included in this document is directly from the document, as this was the most helpful when working through the exercises and learning how to interpret the outputs.
+
 Load packages
 ```{r}
 library(sp)
@@ -39,24 +41,47 @@ metadata$avg_inf <- metadata$average_qpcr * 80
 Read in and look at the structure of the interpolation grid
 ```{r}
 library(rgdal)
-
 grid <- readOGR("~/PSTAT236/grid_meta_26910.shp")
 frog <- readOGR("~/PSTAT236/meta_data_26910.shp") 
 
+# interpolation grid
 grid_coord <- as.data.frame(grid@coords)
-
 gridded (grid_coord) = ~coords.x1 + coords.x2
 
-# ERROR HERE
-frog@data[,39] = as.numeric(frog@data[,39])
-frog@data[,40] = as.numeric(frog@data[,40])
-frog@data[,41] = as.numeric(frog@data[,41])
+frog@data$qpcr_a = as.numeric(frog@data$qpcr_a)
+frog@data$qpcr_b = as.numeric(frog@data$qpcr_b)
+frog@data$qpcr_c = as.numeric(frog@data$qpcr_c)
 
-ze_1 = variogram(log(ZE_1) ~ 1, frog)
-ze_2 = variogram(log(ZE_2) ~ 1, frog)
-ze_3 = variogram(log(ZE_3) ~ 1, frog)
+frog@data$amphibian_svl <- as.numeric(frog@data$amphibia_2)
+metadata$amphibian_weight <- as.numeric (frog@data$amphibia_3)
+frog@data$avg_inf <- as.numeric(frog@data$average_qp) * 80 
 
-plot(ze_1)
+frog_not_na = frog[which(!is.na(frog@data$avg_inf)),]
+frog_pos = frog[which(frog@data$avg_inf >= 1.0),]
+
+ze_log = variogram(log(avg_inf) ~ 1, frog_pos)
+plot(ze_log)
+
+ze = variogram(avg_inf ~ 1, frog_pos)
+plot(ze)
+
+v.sph = fit.variogram(ze_log, vgm(10, "Sph", 30000, 1)) # Spherical Model
+v.exp = fit.variogram(ze_log, vgm(10, "Exp", 30000, 1)) # Exponential Model
+v.gau = fit.variogram(ze_log, vgm(10, "Gau", 30000, 1)) # gaussian model
+# vgm means psil = 1, range = 300, nugget = 1 (It's arbitrary)
+
+plot(ze_log, v.sph)
+plot(ze_log, v.exp)
+plot(ze_log, v.gau)
+
+v.sph = fit.variogram(ze, vgm(10000000000, "Sph", 30000, 1)) # Spherical Model
+v.exp = fit.variogram(ze, vgm(10000000000, "Exp", 30000, 1)) # Exponential Model
+v.gau = fit.variogram(ze, vgm(10000000000, "Gau", 30000, 1)) # gaussian model
+# vgm means psil = 1, range = 300, nugget = 1 (It's arbitrary)
+
+plot(ze, v.sph)
+plot(ze, v.exp)
+plot(ze, v.gau)
 ```
 
 
@@ -67,6 +92,9 @@ df_no_na <- metadata[!is.na(metadata$avg_inf), ]
 
 # now I'm subsetting the dataframe we just made to include only positive infections
 df_pos <- df_no_na[df_no_na$avg_inf >= 1.0, ]
+
+# remove rows where lat/long are missing
+df_pos <- df_pos[!is.na(df_pos$lat), ]
 ```
 
 ## Now going into exercises from Co-kriging with the gstat package (Rossiter, 2018)
@@ -104,8 +132,6 @@ rm (ph, l, lvls, p)
 ```
 
 # choose (continuous) covariables based on our hypotheses
-## wet_m: how far out the wet ring extends from the edge of the pond
-### Bd is an aquatic fungus, so Bd infections are likely directly tied to the amount of water/moisture present.
 ## amphibian svl
 ### larger body size probably means more zoospores (more surface area)
 ## amphibian weight
@@ -175,7 +201,7 @@ It looks like everything is slightly better log10 transforming. pH remains relat
 # Make subset of the observations of infection load (target variable) and covariables (SVL, mass, and elevation), using every third sample from the full dataset.
 ```{r}
 df.inf <- df_pos [seq (1, length (df_pos$avg_inf), by = 3), 
-                   c ("x", "y", "avg_inf",
+                   c ("lat", "long", "avg_inf",
                       "amphibian_svl", "amphibian_weight", 
                       "ph", "watertemp", 
                       "conductivity_uS", "totaldissolvedsolid",
@@ -189,9 +215,14 @@ rownames(df.inf)
 # Add fields with the log10 transformed target and covariables to the dataframe of the subsample
 ```{r}
 df.inf <- cbind (df.inf,
-                   ltavg_inf = log10 (df.inf$avg_inf),
-                   lt = log10 (df.inf$SVL_mm),
-                   ltzn = log10 (df.inf$Mass_g))
+                   log_avg_inf = log10 (df.inf$avg_inf),
+                   log_svl = log10 (df.inf$amphibian_svl),
+                   log_mass = log10 (df.inf$amphibian_weight),
+                   log_ph = log10 (df.inf$ph),
+                   log_temp = log10 (df.inf$watertemp),
+                   log_conduct = log10 (df.inf$conductivity_uS),
+                   log_dissolv = log10 (df.inf$totaldissolvedsolid),
+                   log_salinity = log10 (df.inf$salinity_ppt))
 
 str (df.inf)
 ```
@@ -201,33 +232,35 @@ The evaluation dataset is the rows of the dataset that were not used in the subs
 
 # *** adding a small constant to each avg infection load results in non-normality even after transforming, but non-transforming 0's results in -Inf. May need to 2 separate analyses here like with other stats and Bd -> 1 for positive infections and 0 for negative
 ```{r}
-df.extra <- df [setdiff (rownames (df), rownames (df.inf)),
-                      c ("Latitude", "Longitude", "avg_ze")]
-df.extra <- cbind (df.extra, ltavgze = log10 (df.extra$avg_ze))
+df.extra <- df_pos [setdiff (rownames (df_pos), rownames (df.inf)),
+                      c ("lat", "long", "avg_inf")]
+df.extra <- cbind (df.extra, log_avg_inf = log10 (df.extra$avg_inf))
 
 str (df.extra)
 
-summary (log10 (df$avg_ze)); sd (log10 (df$avg_ze))
+#look at summary stats for full dataset
+summary (log10 (df_pos$avg_inf)); sd (log10 (df_pos$avg_inf))
 
-summary (df.inf$ltavgze); sd (df.inf$ltavgze)
+#look at summary stats for subsample dataset
+summary (df.inf$log_avg_inf); sd (df.inf$log_avg_inf)
 
-summary (df.extra$ltavgze); sd (df.extra$ltavgze) # evaluation set
+#look at summary stats for extra (evaluation) dataset
+summary (df.extra$log_avg_inf); sd (df.extra$log_avg_inf) # evaluation set
 ```
-The subsample has very similar statistics to the full sample.
-The range is narrower but standard deviation is a bit higher; median and mean are larger by chance. 
-Evaluation has very similar statistics to the full set.
+Both the subsample and evaluation (extra) dataset have similar statistics to the full sample. However, the range of the subsample and full dataset are wider than the range of the evaluation dataset. The standard deviation is almost identical across the 3 datasets.
+
 
 # Start the Spatial analysis!
 # convert full and subset dataframes, and interpolation grid (need to create this), to explicitly-spatial, sp classes
 ```{r}
-class(df)
+class(df_pos)
 
-coordinates (df) <- c ("Latitude", "Longitude")
-coordinates (df.inf) <- c ("Latitude", "Longitude")
-coordinates (df.extra) <- c ("Latitude", "Longitude")
-#coordinates (meuse.grid) <- c ("Latitude", "Longitude")
+coordinates (df_pos) <- c("lat", "long")
+coordinates (df.inf) <- c ("lat", "long")
+coordinates (df.extra) <- c ("lat", "long")
+# coordinates (grid_coord) <- c ("coords.x1", "coords.x2") # already done in interpolation grid chunk
 
-class (df)
+class (df_pos)
 ```
 Now the objects (sample locations) are spatially-explicit - have a known bounding box, projection, and attributes
 
@@ -237,19 +270,21 @@ summary (df.inf)
 
 You can also recover the original dataframe if needed like this:
 ```{r}
-str (as.data.frame (df))
+str (as.data.frame (df_pos))
 ```
 
 # Display a postplot of the subsample superimposed on the full sample and compare their geographic distribution
 ```{r}
-xyplot (Latitude ~ Longitude, as.data.frame (df), asp = "iso", 
+# this is not returning a plot with any points
+xyplot (lat ~ long, as.data.frame (df_pos), asp = "iso", 
         panel = function (x, ...) {
-          panel.points (coordinates (df),
-                        cex = 1.8 * (log10 (df$avg_ze) - 1.3),
+          panel.points (coordinates (df_pos),
+                        cex = 1.8 * (log10 (df_pos$avg_inf) - 1.3),
                         pch = 1, col = "blue");
           panel.points (coordinates (df.inf), # subset
-                        cex = 1.8 * (df.inf$ltavgze - 1.3),
+                        cex = 1.8 * (df.inf$log_avg_inf - 1.3),
                         pch = 20, col = "red");
           panel.grid (h = -1, v = -1, col = "darkgrey")
         })
 ```
+
