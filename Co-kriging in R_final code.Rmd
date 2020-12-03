@@ -40,13 +40,14 @@ Read in and look at the structure of the interpolation grid
 ```{r}
 library(rgdal)
 
-grid <- readOGR("~/PSTAT236/grid_bay_26910.shp")
-frog <- readOGR("~/PSTAT236/dat_bay_26910.shp")
+grid <- readOGR("~/PSTAT236/grid_meta_26910.shp")
+frog <- readOGR("~/PSTAT236/meta_data_26910.shp") 
 
 grid_coord <- as.data.frame(grid@coords)
 
 gridded (grid_coord) = ~coords.x1 + coords.x2
 
+# ERROR HERE
 frog@data[,39] = as.numeric(frog@data[,39])
 frog@data[,40] = as.numeric(frog@data[,40])
 frog@data[,41] = as.numeric(frog@data[,41])
@@ -198,7 +199,7 @@ The evaluation dataset is the rows of the dataset that were not used in the subs
 
 # Set up evaluation dataset: make dataframe of the infection load values at the extra points that were not included in the subsample and compare the descriptive statistics of the 3 sets (sample, extra, and full)
 
-# *** adding a small constant to each avg infection load results in non-normality even after transforming, but non-transforming 0's results in -Inf. May need to 2 separate analyses here like with other stats and Bd -> 1 for positive infections and 1 for negative
+# *** adding a small constant to each avg infection load results in non-normality even after transforming, but non-transforming 0's results in -Inf. May need to 2 separate analyses here like with other stats and Bd -> 1 for positive infections and 0 for negative
 ```{r}
 df.extra <- df [setdiff (rownames (df), rownames (df.inf)),
                       c ("Latitude", "Longitude", "avg_ze")]
