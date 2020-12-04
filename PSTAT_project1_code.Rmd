@@ -1,0 +1,401 @@
+---
+title: "Kriging analysis"
+author: "Seonga Cho"
+date: "12/3/2020"
+output: html_document
+---
+
+
+#Install and read in packages
+```{r}
+library(spdep)
+library(spatialreg)
+require(spdplyr) || install.packages("spdplyr", dependencies = T)
+library(spdplyr)
+require(rgdal) || install.packages("rgdal", dependencies = T)
+library(rgdal)
+require(maptools) || install.packages("maptools", dependencies = T)
+library(maptools)
+require(dplyr) || install.packages("dplyr", dependencies = T)
+library(dplyr)
+require(igraph) || install.packages("igraph", dependencies = T)
+library(igraph)
+require(foreign) || install.packages("foreign", dependencies = T)
+library(foreign)
+require(maptools) || install.packages("maptools", dependencies = T)
+library(maptools)
+require(rgeos) || install.packages("rgeos", dependencies = T)
+library(rgeos)
+require(sp) || install.packages("sp", dependencies = T)
+library(sp)
+require(ggplot2) || install.packages("ggplot2", dependencies = T)
+library(ggplot2)
+library(raster)
+library(lubridate)
+require(sf) || install.packages("sf", dependencies = T)
+library(sf)
+require(clue) || install.packages("clue", dependencies = T)
+library(clue)
+require(ggmap) || install.packages("ggmap", dependencies = T)
+library(ggmap)
+require(plotly) || install.packages("plotly", dependencies = T)
+library(plotly)
+library(spdep)
+options(scipen = 999)
+```
+
+#Make sure necessary packages are loaded
+```{r}
+library(sp)
+library(gstat)
+```
+
+#read in data
+```{r}
+metadata <- read.csv("~/PSTAT236/PSTAT236_metadata.csv", stringsAsFactors = F)
+metadata <- metadata [-c (22, 23)]
+```
+
+#Check structure of data and do initial clean up
+```{r}
+str(metadata)
+
+# convert continuous variables to numeric that were read in as characters
+metadata$amphibian_svl <- as.numeric (metadata$amphibian_svl)
+metadata$amphibian_weight <- as.numeric (metadata$amphibian_weight)
+
+# remove outlier
+metadata <- metadata[-201, ]
+
+# convert qpcr loads to zoospore equivalents 
+metadata$avg_inf <- metadata$average_qpcr * 80 
+```
+
+#Create interpolation grid
+```{r}
+library(rgdal)
+
+# read in shapefiles                               
+grid <- readOGR("~/PSTAT236/grid_meta_26910.shp")
+frog <- readOGR("~/PSTAT236/meta_data_26910.shp") 
+                               
+grid_coord <- as.data.frame(grid@coords)
+                               
+gridded (grid_coord) = ~coords.x1 + coords.x2
+                               
+frog@data$qpcr_a = as.numeric(frog@data$qpcr_a)
+frog@data$qpcr_b = as.numeric(frog@data$qpcr_b)
+frog@data$qpcr_c = as.numeric(frog@data$qpcr_c)
+                               
+                               
+frog@data$amphibian_svl <- as.numeric(frog@data$amphibia_2)
+metadata$amphibian_weight <- as.numeric (frog@data$amphibia_3)
+                               
+frog@data$avg_inf <- as.numeric(frog@data$average_qp) * 80 
+                               
+frog_not_na = frog[which(!is.na(frog@data$avg_inf)),]
+frog_pos = frog[which(frog@data$avg_inf >= 1.0),]
+                               
+frog_pos2 = frog_pos[which(frog_pos@data$avg_inf < 1000),]
+```                               
+
+#Plot histograms of target variable (infection load) and log10 transformation
+```{r}
+# removing NAs from dataset
+df_no_na <- metadata[!is.na(metadata$avg_inf), ]
+
+# now I'm subsetting the dataframe we just made to include only positive infections
+df_pos <- df_no_na[df_no_na$avg_inf >= 1.0, ]
+
+# remove rows where lat/long are missing
+df_pos <- df_pos[!is.na(df_pos$lat), ]
+
+require(lattice)
+
+h_1 <- histogram (~ avg_inf, df_pos, xlab = "Infection load", col = "thistle3")
+h_2 <- histogram (~ log10(avg_inf), df_pos, xlab = "log10(infection load)", col = "thistle3")
+
+print (h_1, split = c(1, 1, 2, 1), more = T)
+print (h_2, split = c(2, 1, 2, 1), more = F)
+
+# remove these variables
+rm (h_1, h_2)
+```
+We can see from these histograms that the untransformed infection loads are highly skewed to the left, due to the large proportion of low infection loads. However, log10-transforming the data results in a more normal distribution, so we will move forward working with the log10 transformed infection loads.
+
+# look at the proportions higher than each level
+```{r pressure, echo=TRUE}
+# show the proportions higher than the various thresholds
+ph <- function (level) {
+  round (100 * sum (df_pos$avg_inf > level) / length (df_pos$avg_inf), 1)
+}
+
+p <- NULL; lvls <- c(100, 1000, 10000, 100000, 1000000)
+
+for (l in lvls) p <- c(p, ph(l))
+
+# display table of thresholds and proportions
+(data.frame (cbind (level = lvls, percent.higher = p)))
+
+rm (ph, l, lvls, p)
+```
+
+
+# Covariables
+```{r pressure, echo=TRUE}
+frog_pos@data$amphibia_1 = as.numeric(frog_pos@data$amphibia_1)
+frog_pos@data$amphibia_2 = as.numeric(frog_pos@data$amphibia_2)
+frog_pos@data$ph = as.numeric(frog_pos@data$ph)
+frog_pos@data$watertemp = as.numeric(frog_pos@data$watertemp)
+frog_pos@data$conductivi = as.numeric(frog_pos@data$conductivi)
+frog_pos@data$totaldisso = as.numeric(frog_pos@data$totaldisso)
+frog_pos@data$salinity_p = as.numeric(frog_pos@data$salinity_p)
+```
+
+Plot autogenerated variogram
+```{r}
+library(automap)
+
+# plot variogram to estimate variogram model form and parameters                
+v1 = autofitVariogram(log10(avg_inf) ~ 1, frog_pos)
+plot(v1)
+
+m <- vgm(1.2, "Sph", 452, 1) 
+grid_coord@proj4string = frog_pos@proj4string
+
+# this is a small sample and the variogram does not seem to have great structure
+```
+
+#Plot histograms of co-variables
+```{r}
+h1 <- histogram (~ amphibian_svl, df_pos, xlab = "SVL", col = "#d53e4f")
+h2 <- histogram (~ amphibian_weight, df_pos, xlab = "Mass", col = "#fee08b")
+h3 <- histogram (~ ph, df_pos, xlab = "Ph", col = "#99d594")
+h4 <- histogram (~ watertemp, df_pos, xlab = "Water temperature", col = "#3288bd")
+h5 <- histogram (~ conductivity_uS, df_pos, xlab = "Water conductivity", col = "#998ec3")
+h6 <- histogram (~ totaldissolvedsolid, df_pos, xlab = "Total dissolved solids", col = "#8c510a")
+h7 <- histogram (~ salinity_ppt, df_pos, xlab = "Salinity", col = "#fc8d59")
+
+print (h1, split = c(1, 1, 4, 2), more = T)
+print (h2, split = c(2, 1, 4, 2), more = T)
+print (h3, split = c(3, 1, 4, 2), more = T)
+print (h4, split = c(4, 1, 4, 2), more = T)
+print (h5, split = c(1, 2, 4, 2), more = T)
+print (h6, split = c(2, 2, 4, 2), more = T)
+print (h7, split = c(3, 2, 4, 2), more = F)
+
+rm (h1, h2, h3, h4, h5, h6)
+```
+
+#Plot variograms
+```{r pressure, echo=TRUE} 
+# log(10) infection load variograms
+ze_log = variogram(log10(avg_inf) ~ 1, frog_pos)
+
+# plot variogram cloud 
+plot(ze_log)
+# this doesn't look like there is any spatial correlation within infection loads
+
+## Try different variogram models to see if they fit any better
+# Spherical Model
+v.sph = fit.variogram(ze_log, vgm(1, "Sph", 30000, 1)) 
+
+# Exponential Model
+v.exp = fit.variogram(ze_log, vgm(10, "Exp", 30000, 1)) 
+
+# gaussian model
+v.gau = fit.variogram(ze_log, vgm(4, "Gau", 30000, 1)) 
+
+# plot these variograms                       
+plot(ze_log, v.sph)
+plot(ze_log, v.exp)
+plot(ze_log, v.gau)
+
+#### best fit is with the exponential model
+
+# untransformed infection load variograms                          
+ze = variogram(avg_inf ~ 1, frog_pos)
+plot(ze)
+
+# Spherical Model
+v.sph = fit.variogram(ze, vgm(10000000000, "Sph", 30000, 1)) 
+
+# Exponential Model
+v.exp = fit.variogram(ze, vgm(10000000000, "Exp", 30000, 1))
+
+# gaussian model
+v.gau = fit.variogram(ze, vgm(10000000000, "Gau", 30000, 1)) 
+
+# plot variograms                  
+plot(ze, v.sph)
+plot(ze, v.exp)
+plot(ze, v.gau)
+```
+
+# start kriging analyses
+```{r}
+## Ordinary kriging
+
+### Use fitted model of regionalization to interpolate log(10) infection load with ordinary kriging on the prediction grid.
+
+# interpolate
+Ordinary.K <- krige(log10(avg_inf) ~ 1, frog_pos, grid_coord, model = m)
+Ordinary.k.d. <- data.frame(Ordinary.K)
+
+# summary statistics
+summary (k.o)
+```
+
+### Display map of predictions and prediction errors
+```{r}
+# this file for producing these plots should be found on Rossiter's website, but we could not find the file there or anywhere else online. Therefore, we were unable to run this part
+source ("ck_plotfns.R")
+```
+
+### Interpolate at extra points from the sample points to determine prediction bias and precision
+```{r pressure, echo=TRUE}                               
+# Simple Kriging
+simple.K <- krige(log10(avg_inf) ~ 1, frog_pos, grid_coord, model = m, beta = mean(log10(frog_pos@data$avg_inf)))
+simple.k.d <- data.frame(simple.K)
+                               
+# Universal Kriging
+universal.k <- krige(log10(avg_inf) ~ coords.x1+coords.x2, frog_pos, grid_coord, model = m)
+universal.k.d <- data.frame(universal.k)
+                               
+# Ordinary Kriging
+image(Ordinary.K["var1.pred"], col = cm.colors(20)) 
+title("Ordinary Kriging Predictions") 
+                               
+# Simple Kriging 
+image(simple.K["var1.pred"], col = cm.colors(20))
+title("Simple Kriging Predictions") 
+                               
+# Universal Kriging
+image(universal.k["var1.pred"], col = cm.colors(20))
+title("Universal Kriging Predictions") 
+
+# best semivariogram model  
+
+k1 = autoKrige(log10(avg_inf) ~ 1, frog_pos, grid_coord) # Ordinary Kriging
+plot(k1)
+                               
+v2 = autofitVariogram(log10(avg_inf) ~ 1, frog_pos_na)
+plot(v2)
+                               
+m_co <- vgm(25307, "Gau", 3296055, 0.49) 
+```
+
+#Remove NAs
+```{r}
+frog_pos_na = frog_pos[which(!is.na(frog_pos@data$amphibia_1)),]
+frog_pos_na = frog_pos_na[which(!is.na(frog_pos_na@data$amphibia_2)),]
+frog_pos_na = frog_pos_na[which(!is.na(frog_pos_na@data$ph)),]
+frog_pos_na = frog_pos_na[which(!is.na(frog_pos_na@data$watertemp)),]
+frog_pos_na = frog_pos_na[which(!is.na(frog_pos_na@data$conductivi)),]
+frog_pos_na = frog_pos_na[which(!is.na(frog_pos_na@data$totaldisso)),]
+frog_pos_na = frog_pos_na[which(!is.na(frog_pos_na@data$salinity_p)),]
+```
+
+# Create semivariograms for co-variables SVL and weight
+
+SVL
+```{r pressure, echo=TRUE}
+g2 <- gstat(NULL, id = "log10(avg_inf)", form = log10(avg_inf) ~ 1, data = frog_pos_na)
+g2 <- gstat(g2, id = "amphibian_svl", form = amphibia_1 ~ 1, data = frog_pos_na)
+                               
+g2 <- gstat(g2, id = "svl", model = m_co, fill.all=T)
+
+k.c2 <- predict(g2, grid_coord, debug.level=0)
+plot(variogram(g2), pl=T)
+                               
+plot(variogram(g2), model=g2$model, pl=T)
+                               
+plot(k.c2, main = "Co-kriging with SVL variable")
+```
+
+Weight
+```{r pressure, echo=TRUE}
+g2 <- gstat(NULL, id = "log10(avg_inf)", form = log10(avg_inf) ~ 1, data = frog_pos_na)
+g2 <- gstat(g2, id = "amphibian_weight", form = amphibia_2 ~ 1, data = frog_pos_na)
+                               
+g2 <- gstat(g2, id = "weight", model = m_co, fill.all=T)
+                               
+k.c2 <- predict(g2, grid_coord, debug.level=0)
+                               
+plot(variogram(g2), model=g2$model, pl=T)
+                               
+plot(k.c2, main = "Co-kriging with weight variable")
+```
+
+pH
+```{r pressure, echo=TRUE}
+g2 <- gstat(NULL, id = "log10(avg_inf)", form = log10(avg_inf) ~ 1, data = frog_pos_na)
+g2 <- gstat(g2, id = "PH", form = ph ~ 1, data = frog_pos_na)
+                               
+g2 <- gstat(g2, id = "PH", model = m_co, fill.all=T)
+                               
+k.c2 <- predict(g2, grid_coord, debug.level=0)
+                               
+plot(variogram(g2), model=g2$model, pl=T)
+                               
+plot(k.c2, main = "Co-kriging with Ph variable")
+```
+
+Water temperature
+```{r pressure, echo=TRUE}
+g2 <- gstat(NULL, id = "log10(avg_inf)", form = log10(avg_inf) ~ 1, data = frog_pos_na)
+g2 <- gstat(g2, id = "watertemp", form = watertemp ~ 1, data = frog_pos_na)
+                               
+g2 <- gstat(g2, id = "watertemp", model = m_co, fill.all=T)
+                               
+k.c2 <- predict(g2, grid_coord, debug.level=0)
+                               
+plot(variogram(g2), model=g2$model, pl=T)
+                               
+plot(k.c2, main = "Co-kriging with Watertemperature variable")
+```                               
+
+Water conductivity
+```{r pressure, echo=TRUE}
+g2 <- gstat(NULL, id = "log10(avg_inf)", form = log10(avg_inf) ~ 1, data = frog_pos_na)
+g2 <- gstat(g2, id = "conductivi", form = conductivi ~ 1, data = frog_pos_na)
+                               
+g2 <- gstat(g2, id = "conductivi", model = m_co, fill.all=T)
+                               
+k.c2 <- predict(g2, grid_coord, debug.level=0)
+                               
+plot(variogram(g2), model=g2$model, pl=T)
+                               
+plot(k.c2, main = "Co-kriging with conductivity variable")
+```
+
+Total dissolved solids
+```{r pressure, echo=TRUE}
+g2 <- gstat(NULL, id = "log10(avg_inf)", form = log10(avg_inf) ~ 1, data = frog_pos_na)
+g2 <- gstat(g2, id = "totaldisso", form = totaldisso ~ 1, data = frog_pos_na)
+                               
+g2 <- gstat(g2, id = "totaldisso", model = m_co, fill.all=T)
+                               
+k.c2 <- predict(g2, grid_coord, debug.level=0)
+                               
+plot(variogram(g2), model=g2$model, pl=T)
+                               
+plot(k.c2, main = "Co-kriging with Total dissolved solid variable")
+```                               
+
+Salinity
+```{r pressure, echo=TRUE}
+g2 <- gstat(NULL, id = "log10(avg_inf)", form = log10(avg_inf) ~ 1, data = frog_pos_na)
+g2 <- gstat(g2, id = "salinity_p", form = salinity_p ~ 1, data = frog_pos_na)
+                               
+g2 <- gstat(g2, id = "salinity_p", model = m_co, fill.all=T)
+                               
+k.c2 <- predict(g2, grid_coord, debug.level=0)
+                               
+plot(variogram(g2), model=g2$model, pl=T)
+                               
+plot(k.c2, main = "Co-kriging with Salinity variable")
+                               
+```
+
+
