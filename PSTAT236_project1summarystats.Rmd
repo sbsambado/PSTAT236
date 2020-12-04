@@ -239,7 +239,14 @@ frogtable2 <-summary(table2, title = "Bd")
 Predictor Effects plot for GLMs
 ```{r}
 # frog predictors
-mod1 <- glm(log(zoospore + 1) ~ amphibian_weight + amphibian_svl + property, data = subset)
+mod1 <- glm(log(zoospore + 1) ~ amphibian_weight + amphibian_svl + property + amphibian_spp, data = subset)
+
+frogsubset <- subset[which(subset$amphibian_spp != 'NA'),]
+mod3<- glm(log(zoospore + 1) ~ amphibian_spp, data = frogsubset)
+plot(predictorEffects(mod3, ~ amphibian_spp))
+
+
+spp2 <- plot(predictorEffects(mod1, ~ amphibian_spp))
 
 pdf(file = "ZoosporePredictProperty.pdf")
 property2 <- plot(predictorEffects(mod1, ~ property))
